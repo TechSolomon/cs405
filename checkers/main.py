@@ -9,7 +9,7 @@ import pygame
 import time
 
 from mechanics.match import Match
-from mcts.search import MCTS
+# from mcts.search import MCTS
 from mechanics.variables import BOARD_SIZE, FPS, GRAY, SEARCH_TIME
 
 
@@ -147,7 +147,7 @@ def gui_display():
     clock = pygame.time.Clock()
 
     # Player 1 - MiniMax
-    minimax_active = True
+    minimax_active = False
     minimax_depth = 8
     alternate_player = 0
 
@@ -221,16 +221,33 @@ def gui_display():
     print("❌ Quit Checkers [GUI]")
 
 
+# def test_minimax():
+#     match = Match()
+#     minimax_depth = 8
+#     alternate_player = 0
+#     assess, best = minimax(match, minimax_depth, alternate_player)
+#     print(f'⏳ Attempt Evaluation: {assess}')
+#     print(f'🧠 Ideal Move: {best}')
+#     assert best == (0, 0, 0)
+
+# Pytest Example
+# Source: https://docs.pytest.org/en/6.2.x/getting-started.html
+def fibonacci(n):
+    if n <= 1:
+        return n
+    else:
+        return fibonacci(n - 1) + fibonacci(n - 2)
+
+
+def solution():
+    assert fibonacci(10) == 55
+
+
 # Main program
 if __name__ == '__main__':
     gui_display()
 
-    # Save the finished board position to a text file.
-    # print("Final Board: " + str(Match().match_grid))
-
-    # FIXME: Debug Information
-    # print(minimax(Match(), 6, 0))
-    # print(monte_carlo_search(Match(), 100, 0, 0.5))
+    # TODO: Save the finished board position to a text file.
 
     # Monte Carlo Tree Search
     # - Node traversal
