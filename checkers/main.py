@@ -4,198 +4,238 @@
 #
 # For CS 405 Spring 2022
 
-"""
-Basic checkers implementation.
-[] Start with 8 x 8 --> 32 active spaces.
-[] Bunch of if/then statements.
-[] No bit mapping / packing?
-[] For each x do y (loop).
-[] 5 pieces (R, B, -, RK, BK).
-"""
-
-import math
+import copy
 import pygame
-import random
-from string import ascii_uppercase as key
-import sys
 import time
 
-# TODO: Custom graphic art of Red & White King. 👑
-from mechanics.variables import BOARD_SIZE, WIDTH, HEIGHT
-
-# CONSTANTS
-RP = "R"  # Red Pawn
-BP = "B"  # Black Pawn
-EM = "-"  # Empty Cell
-RK = "RK"  # Red King
-BK = "BK"  # Black King
+from mechanics.match import Match
+from mcts.search import MCTS
+from mechanics.variables import BOARD_SIZE, FPS, GRAY, SEARCH_TIME
 
 
-class Match:
-    def __init__(self, display):
-        self.display = display
+# TODO:
+# - Log game output to file
+# - Require piece capture on relevant moves
+# - Step through each move in the game
+# - Continue working on MiniMax & MCTS (Alpha-Beta pruning)
+
+def evaluate(game, maximizing_player):
+    """Board evaluation function for the AI player."""
+
+    # FIXME: If a piece is available, take it.
+    if game.piece_selection is None:
+        return 0
+
+    return game.pieces[maximizing_player] - game.pieces[(maximizing_player + 1) % 2] + 0.5 * (
+            game.kings[maximizing_player] - game.kings[(maximizing_player + 1) % 2])
 
 
-class Movement(object):
-    def __init__(self, color, row, column, occupied=None):
-        self.color = color
-        self.row = row
-        self.col = column
-        self.occupied = occupied
-        self.king = False
-    # TODO:
-    #  - Attributes for each piece & neighbor interactions.
-    #  - Determine piece residing at given square.
+def minimax(match, depth, maximizing_player_index, alpha=float('-inf'), beta=float('inf')):
+    """Minimax algorithm with alpha-beta pruning."""
+    player_index = match.turn % 2
+    winner = match.winning_heuristic()
+    if winner is not None:
+        if winner == match.players[maximizing_player_index]:
+            return float('+inf'), None, []
+        elif winner == match.players[(maximizing_player_index + 1) % 2]:
+            return float('-inf'), None, []
+        else:
+            return evaluate(match, maximizing_player_index), None, []
+    elif depth == 0:
+        assessment = evaluate(match, maximizing_player_index)
+        return assessment, None
+
+    elif maximizing_player_index == player_index:
+        max_eval = float('-inf')
+        best_move = None
+        moves = match.move_collection(match.players[player_index])
+        for move in moves:
+            new_game = copy.deepcopy(match)
+            new_game.mechanics(match.players[player_index], move[0], move[1], move[2], True)
+            assessment = minimax(new_game, depth - 1, maximizing_player_index, alpha, beta)[0]
+            max_eval = max(max_eval, assessment)
+            alpha = max(alpha, assessment)
+            if beta <= alpha:
+                break
+            if max_eval == assessment:
+                best_move = move
+        return max_eval, best_move
+
+    else:
+        min_eval = float('+inf')
+        best_move = None
+        moves = match.move_collection(match.players[player_index])
+        for move in moves:
+            new_game = copy.deepcopy(match)
+            new_game.mechanics(match.players[player_index], move[0], move[1], move[2], True)
+            assessment = minimax(new_game, depth - 1, maximizing_player_index, alpha, beta)[0]
+            min_eval = min(min_eval, assessment)
+            beta = min(beta, assessment)
+            if beta <= alpha:
+                break
+            if min_eval == assessment:
+                best_move = move
+        return min_eval, best_move
 
 
-# position = [
-#     [EM, RP, EM, RP],
-#     [EM, EM, EM, EM],
-#     [BP, EM, BP, EM]
-# ]
+# Implement MCTS
+def monte_carlo(match, param, maximizing_player_index, search_time):
+    """Monte Carlo tree search algorithm."""
+
+    # Pause for the allotted time
+    time.sleep(SEARCH_TIME[1])
+
+    # FIXME: Initialize root node (from external class)
+
+    player_index = match.turn % 2
+    winner = match.winning_heuristic()
+
+    if winner is not None:
+        if winner == match.players[maximizing_player_index]:
+            return float('+inf'), None, []
+        elif winner == match.players[(maximizing_player_index + 1) % 2]:
+            return float('-inf'), None, []
+        else:
+            return evaluate(match, maximizing_player_index), None, []
+    elif param == 0:
+        assessment = evaluate(match, maximizing_player_index)
+        return assessment, None
+
+    # TODO: Implement MCTS algorithm from search.py class (MCTS)
+    # 1. Selection
+    # 2. Expansion
+    # 3. Simulation
+    # 4. Backpropagation
 
 
-# position = [
-#     [EM, RP, EM, RP],
-#     [EM, EM, EM, EM],
-#     [EM, EM, EM, EM],
-#     [BP, EM, BP, EM]
-# ]
-
-
-position = [
-    [EM, RP, EM, RP, EM, RP, EM, RP],
-    [RP, EM, RP, EM, RP, EM, RP, EM],
-    [EM, RP, EM, RP, EM, RP, EM, RP],
-    [EM, EM, EM, EM, EM, EM, EM, EM],
-    [EM, EM, EM, EM, EM, EM, EM, EM],
-    [BP, EM, BP, EM, BP, EM, BP, EM],
-    [EM, BP, EM, BP, EM, BP, EM, BP],
-    [BP, EM, BP, EM, BP, EM, BP, EM]
-]
-
-
-def print_grid(board):
-    for row in board:
-        print(row)
-
-
-def coordinates(board, number):
-    number = int(number) - 1
-    return number % len(board), number // len(board)
-
-
-def jump(board, transition):
-    (src_x, src_y), (dst_x, dst_y) \
-        = (coordinates(board, x) for x in transition.split())
-    x_diff = abs(src_x - dst_x)
-    y_diff = abs(src_y - dst_y)
-
-    # if sorted([x_diff, y_diff]) != [0, 2]:
-    #     print('Invalid coordinates!')
-    #     return
-
-    mid_x = (src_x + dst_x) // 2
-    mid_y = (src_y + dst_y) // 2
-
-    if board[src_y][src_x] == EM:
-        print('Source cell empty!')
-
-    if board[dst_y][dst_x] != EM:
-        print('Target cell occupied!')
-
-    if board[mid_y][mid_x] == EM:
-        print('Error: No piece to jump over!')
-
-    if board[src_y][src_x] == board[mid_y][mid_x]:
-        print('Error: Same color jump!')
-
-    board[dst_y][dst_x] = board[src_y][src_x]
-    board[mid_y][mid_x] = EM
-    board[src_y][src_x] = EM
-
-
-def ascii_display():
-    """Default grid for a new game of checkers."""
-
-    print("HW1 – Basic Checkers")
-    print(">> Starting game...")
-
-    # Grid Key
-    heading = list(key[:BOARD_SIZE])
-    index = iter(range(0, BOARD_SIZE))
-
-    # Empty Initial Board
-    board = [[EM for vertical in range(BOARD_SIZE)]
-             for horizontal in range(BOARD_SIZE)]
-
-    print("  " + " ".join(heading))
-    for dimensions in board:
-        print(next(index), end=" ")
-        print(" ".join(dimensions))
-
-    print()
-
-    return position
-
-
-def move_generation():
-    """Generate all moves and jumps available to a player."""
-    # print("Red & Black Table / Key")  # FIXME
-
-    print(math.pi)
-    print(random.randint(10, 100))
-    print(time.time_ns())
-
+# Save the final game state to a text file
+def output_log(match):
+    """Output the final game state to a text file."""
     moves = []
 
-    # for rows in range(BOARD_SIZE):
-    #     for columns in range(BOARD_SIZE):
-    #         print("START HERE!")  # FIXME
+    # Get the moves of the game
+    for player in match.players:
+        moves.append(player.moves)
+    with open('final_state.txt', 'a') as f:
+        f.write(str(moves) + '\n')
+        f.write(str(match.winner) + '\n')
+        f.write(str(match.winning_heuristic()) + '\n')
+        # Output the final board position to a text file
+        f.write(str(match.board) + '\n')
+    f.close()
 
+    print("🎮 Game State [Moves]: " + str(moves))
+    print("🏆 Winner: " + str(match.winner))
+    print("🧠 Winning Heuristic: " + str(match.winning_heuristic()))
+    print("✅ Final Board State: " + str(match.board))
 
-def human_playable():
-    """Allow a human to play your move generator."""
-    iteration = True
-    while iteration:
-        print_grid(position)
-        move = input(">> Desired move (e.g. # [space] #): ")
-        print('>> Executing move: {}'.format(move))
-        jump(position, move)
-        print_grid(position)
-        print()
+    return moves + [match.winner] + [match.winning_heuristic()] + [match.board]
 
 
 def gui_display():
     """Display the checkers board."""
-    print("Hello, GUI display!")
+    print("🚀 Launched Checkers [GUI]")
 
+    # Match Properties
     pygame.init()
-    window = pygame.display.set_mode((WIDTH, HEIGHT))
-    pygame.display.set_caption('🎲 CS 405 – Checkers')
-    multimedia = pygame.image.load('assets/board.png')
+    window = pygame.display.set_mode(BOARD_SIZE)
+    pygame.display.set_caption('🎲 CS 405: Checkers')
 
-    active = True
+    # Match Beginning
+    match = Match()
+    completed = False
+    clock = pygame.time.Clock()
 
-    while active:
-        window.blit(multimedia, (0, 0))
+    # Player 1 - MiniMax
+    minimax_active = True
+    minimax_depth = 8
+    alternate_player = 0
 
-        for event in pygame.event.get():
+    # Player 2 - MCTS
+    mcts_active = False
+    mcts_simulations = FPS
+    mcts_time_limit = SEARCH_TIME[4]
 
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                quit()
-            pygame.display.update()
+    while not completed:
+        if match.turn % 2 == alternate_player and minimax_active:
+            assess, best = minimax(match, minimax_depth, alternate_player)
+            print(f'⏳ Attempt Evaluation: {assess}')
+            print(f'🧠 Ideal Move: {best}')
+
+            winner = match.winning_heuristic()
+            if winner is not None:
+                print(f'🏆 Winner: {winner}')
+                # FIXME: Save the final board position to a text file
+                with open('log.txt', 'a') as f:
+                    f.write(str(match.grid()) + '\n')
+                f.close()
+
+                completed = True
+            else:
+                match.mechanics(match.players[match.turn % 2], best[0], best[1], best[2], True)
+                print('Score', match.pieces, "\tKings", match.kings, '\n')
+
+        if mcts_active:
+            # assess, best = monte_carlo(match, mcts_simulations, alternate_player, mcts_time_limit)
+            # print(f'⏳ Attempt Evaluation: {assess}')
+            # print(f'🧠 Ideal Move: {best}')
+
+            winner = match.winning_heuristic()
+            if winner is not None:
+                print(f'🏆 Winner: {winner}')
+                # FIXME: Save the final board position to a text file
+                with open('log.txt', 'a') as f:
+                    f.write(str(match.grid()) + '\n')
+                f.close()
+
+                completed = True
+            else:
+                # match.mechanics(match.players[match.turn % 2], best[0], best[1], best[2], True)
+                print('Score', match.pieces, "\tKings", match.kings, '\n')
+
+        else:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    completed = True
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    mouse_x, mouse_y, = pygame.mouse.get_pos()
+
+                    # FIXME: Debug Information
+                    print("🖱 Mouse (x, y): " + str(mouse_x) + ", " + str(mouse_y))
+
+                    match.click_evaluation(pygame.mouse.get_pos())
+
+            # Grid Creation
+            window.fill(GRAY)
+            match.grid()
+            pygame.display.flip()
+            clock.tick(FPS)
+
+            # EMOJI / TERMINAL STATUS KEY:
+            # - ✅ Completed
+            # - ⚠️ Warning
+            # - ❌ Quit
+            # - 🚀 Launch
+
+    pygame.quit()
+    print("❌ Quit Checkers [GUI]")
 
 
 # Main program
-if __name__ == "__main__":
+if __name__ == '__main__':
     gui_display()
 
-    # ascii_display()
-    # try:
-    #     human_playable()
-    # except KeyboardInterrupt:
-    #     sys.exit(0)
+    # Save the finished board position to a text file.
+    # print("Final Board: " + str(Match().match_grid))
 
-    # move_generation()
+    # FIXME: Debug Information
+    # print(minimax(Match(), 6, 0))
+    # print(monte_carlo_search(Match(), 100, 0, 0.5))
+
+    # Monte Carlo Tree Search
+    # - Node traversal
+    # - Result of the simulation
+    # - Selection of the node to expand
+    # - Randomly selecting a child node
+    # - Backpropagation
+    # - Selecting the best child node
